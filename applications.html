@@ -327,14 +327,32 @@
     if (!d) return '';
     if (lang === 'zh') return d[key + '_zh'] || d[key + '_en'] || '';
     if (lang === 'vi') return d[key + '_vi'] || d[key + '_zh'] || d[key + '_en'] || '';
-    if (lang === 'tl') return d[key + '_tl'] || d[key + '_zh'] || d[key + '_en'] || '';
+    if (lang === 'tl') return d[key + '_tl'] || d[key + '_fil'] || d[key + '_ph'] || d[key + '_zh'] || d[key + '_en'] || '';
     return d[key + '_en'] || d[key + '_zh'] || '';
   }
-  // 异步版：无值时调 autoTranslate
+
+  // 判断 pickLangSync 是否找到了带当前语言后缀的字段（而非 fallback 到无后缀）
+  function hasLangSuffix(d, key, lang) {
+    if (!d || lang === 'en') return true;
+    if (lang === 'zh') return !!d[key + '_zh'];
+    if (lang === 'vi') return !!d[key + '_vi'];
+    if (lang === 'tl') return !!(d[key + '_tl'] || d[key + '_fil'] || d[key + '_ph']);
+    return false;
+  }
+
+  // 异步版：无对应语言字段时调 autoTranslate（带缓存）
   async function pickLang(d, key, lang) {
     lang = lang || getLang();
     var v = pickLangSync(d, key, lang);
-    if (v) return v;
+    if (v && hasLangSuffix(d, key, lang)) return v;  // 有目标语言翻译，直接返回
+    if (lang === 'en') return v;                          // 英文不翻译
+    // 有英文值但无目标语言翻译 → 需要翻译
+    var enVal = d[key] || d[key + '_en'] || '';
+    if (!enVal) return v;
+    // 补 cacheId（autoTranslate.pickLang 用 obj.id 做 translations.json 缓存 key）
+    if (!d.id && d._idx !== undefined) {
+      d.id = 'app_' + (d._type || 'mat') + '_' + d._pidx + '_' + d._idx;
+    }
     if (window.autoTranslate) return await window.autoTranslate.pickLang(d, key, lang);
     return '';
   }
@@ -347,6 +365,7 @@
       return;
     }
     const sections = await Promise.all(items.map(async (item, idx) => {
+      item._idx = idx; item._type = 'scenario'; // 场景缓存 id
       const name = await pickLang(item, 'name', lang) || item.slug || '';
       const desc = await pickLang(item, 'description', lang) || '';
       const slug = item.slug || ('app-' + idx);
@@ -363,8 +382,10 @@
       // 渲染推荐材料
       let materialsHtml = '';
       if (item.materials && item.materials.length > 0) {
-        const matCards = await Promise.all(item.materials.slice(0, 6).map(async (mat) => {
-          const matName = await pickLang(mat, 'name', lang) || mat.name || mat.name_en || '';
+        item._idx = idx; item._type = 'scenario'; // 场景缓存 id
+        const matCards = await Promise.all(item.materials.slice(0, 6).map(async (mat, mi) => {
+          mat._idx = mi; mat._pidx = idx; mat._type = 'mat'; // 材料缓存 id
+          const matName = await pickLang(mat, 'name', lang) || mat.name || '';
           const matDesc = await pickLang(mat, 'desc', lang) || mat.desc || mat.description_en || '';
           return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--gray-50);border-radius:var(--radius);border-left:3px solid var(--accent-blue);">
             <span style="font-size:16px;">🔹</span>

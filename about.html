@@ -241,7 +241,7 @@
       <h2 data-i18n="about_page.factoryTitle">State-of-the-Art Manufacturing Facility</h2>
       <p data-i18n="about_page.factoryDesc">Located in U+Zhigu Industrial Park, LiShui Town, Nanhai District – one of Foshan's premium industrial zones dedicated to advanced manufacturing.</p>
     </div>
-    <div id="abt-factory-grid" class="factory-gallery" style="display:flex;gap:16px;margin-bottom:48px;flex-wrap:nowrap;overflow-x:auto;">
+    <div id="abt-factory-grid" class="factory-gallery" style="display:flex;justify-content:center;gap:16px;margin-bottom:48px;flex-wrap:wrap;">
       <div class="factory-thumb" onclick="openFactoryLightbox(this)">
         <img id="abt-factory-img-0" src="/images/acrylic-sheet.svg" alt="Jin Yu Factory Exterior" style="width:260px;height:180px;object-fit:cover;border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);cursor:pointer;transition:transform 0.2s;" />
       </div>
@@ -860,12 +860,30 @@ initSEO({ pageTitle: 'About Us' });
     return obj[base + '_en'] || obj[base + '_zh'] || obj[base] || '';
   }
 
-  // 异步：字段为空时调 autoTranslate
+  // 判断 pickSync 是否找到了带当前语言后缀的字段（而非 fallback 到无后缀）
+  function hasLangSuffix(obj, base, lang) {
+    if (!obj || lang === 'en') return true; // 英文不需要后缀
+    if (lang === 'zh') return !!obj[base + '_zh'];
+    if (lang === 'vi') return !!obj[base + '_vi'];
+    if (lang === 'tl') return !!(obj[base + '_tl'] || obj[base + '_fil'] || obj[base + '_ph']);
+    return false;
+  }
+
+  // 异步：字段为空或无对应语言后缀时调 autoTranslate（带缓存）
+  // 缓存层级：①内存cache → ②translations.json(i18n) → ③API翻译→回写①②
   async function pickField(obj, base, lang) {
     lang = lang || getLang();
     var v = pickSync(obj, base, lang);
-    if (v) return v;
-    if (lang === 'en' || lang === 'zh') return v; // 不翻译英/中
+    if (v && hasLangSuffix(obj, base, lang)) return v;  // 有对应语言的翻译，直接返回
+    if (lang === 'en') return v;                          // 英文不翻译
+    // 有英文值但没有目标语言翻译 → 需要翻译（含中文）
+    var enVal = obj[base] || obj[base + '_en'] || '';
+    if (!enVal) return v;                                  // 连英文都没有，不翻译
+    // 补上 cacheId（pickLang 用 obj.id 做 translations.json 缓存 key）
+    // about 数据的 milestone/team_member 没有 id，用数组索引生成唯一标识
+    if (!obj.id && obj._idx !== undefined) {
+      obj.id = 'about_' + (obj._type || 'field') + '_' + obj._idx;
+    }
     if (window.autoTranslate) return await window.autoTranslate.pickLang(obj, base, lang);
     return '';
   }
@@ -876,6 +894,7 @@ initSEO({ pageTitle: 'About Us' });
   async function renderAbout(d) {
     if (!d) return;
     _aboutData = d;
+    d.id = 'about'; // 顶层字段缓存 id
     var lang = getLang();
 
     // 公司介绍文字（异步并行）
@@ -923,6 +942,7 @@ initSEO({ pageTitle: 'About Us' });
     // 产能区块6张卡片（异步）
     if (Array.isArray(d.capacity_cards)) {
       await Promise.all(d.capacity_cards.map(async function(card, i) {
+        card._idx = i; card._type = 'cap'; // 给 pickField 的缓存 key 用
         var titleEl = document.getElementById('cap-title-' + i);
         var descEl  = document.getElementById('cap-desc-' + i);
         if (titleEl) {
@@ -940,6 +960,7 @@ initSEO({ pageTitle: 'About Us' });
     if (Array.isArray(d.factory_images)) {
       for (var i = 0; i < d.factory_images.length; i++) {
         var img = d.factory_images[i];
+        img._idx = i; img._type = 'factory';
         if (img.url) {
           setImg('abt-factory-img-' + i, img.url);
           var el = document.getElementById('abt-factory-img-' + i);
@@ -952,7 +973,8 @@ initSEO({ pageTitle: 'About Us' });
     if (Array.isArray(d.milestones) && d.milestones.length) {
       var tlEl = document.getElementById('abt-timeline');
       if (tlEl) {
-        var msHtmls = await Promise.all(d.milestones.map(async function(m) {
+        var msHtmls = await Promise.all(d.milestones.map(async function(m, idx) {
+          m._idx = idx; m._type = 'ms'; // 给 pickField 的缓存 key 用
           var year  = await pickField(m, 'year', lang);
           var title = await pickField(m, 'title', lang);
           var desc  = await pickField(m, 'desc', lang);
@@ -995,7 +1017,8 @@ initSEO({ pageTitle: 'About Us' });
         var visibleMembers = d.team_members.filter(function(m) {
           return m.visible !== false;
         });
-        var teamHtmls = await Promise.all(visibleMembers.map(async function(m) {
+        var teamHtmls = await Promise.all(visibleMembers.map(async function(m, idx) {
+          m._idx = idx; m._type = 'team'; // 给 pickField 的缓存 key 用
           var name = await pickField(m, 'name', lang);
           var role = await pickField(m, 'role', lang);
           var desc = await pickField(m, 'desc', lang);

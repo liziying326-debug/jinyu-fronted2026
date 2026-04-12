@@ -323,50 +323,12 @@
     'Printing Technology': 'blog_page.printingTechnology'
   };
 
-  // 翻译缓存和请求复用
+  // 注意：不再覆盖 window.autoTranslate，直接使用 i18n.js 中已增强的版本
+  // （i18n.js 的 translate() 现在包含：内存cache → i18n缓存 → API翻译 → 持久化）
+  
+  // 翻译缓存和请求复用（用于页面内部其他场景）
   var _trCache = {};
   var _trPending = {};
-
-  // autoTranslate API（供 getLangField 使用）
-  window.autoTranslate = {
-    translate: function(text, from, to) {
-      return new Promise(function(resolve) {
-        if (!text || !String(text).trim()) return resolve(text);
-        if (from === to) return resolve(text);
-        var t = String(text).trim();
-        var cacheKey = to + '_' + from + '_' + t.slice(0, 80);
-        
-        // 缓存命中
-        if (_trCache[cacheKey]) return resolve(_trCache[cacheKey]);
-        
-        // 并发请求复用
-        if (_trPending[cacheKey]) {
-          _trPending[cacheKey].push(resolve);
-          return;
-        }
-        _trPending[cacheKey] = [resolve];
-        
-        fetch('/api/translate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: t, from: from || 'zh', to: to })
-        })
-          .then(function(r) { return r.json(); })
-          .then(function(j) {
-            var result = (j && j.translatedText) ? j.translatedText : t;
-            _trCache[cacheKey] = result;
-            var cbs = _trPending[cacheKey] || [];
-            delete _trPending[cacheKey];
-            cbs.forEach(function(cb) { cb(result); });
-          })
-          .catch(function() {
-            var cbs = _trPending[cacheKey] || [];
-            delete _trPending[cacheKey];
-            cbs.forEach(function(cb) { cb(t); });
-          });
-      });
-    }
-  };
 
   // 异步翻译任意英文文本（vi/tl 时才翻，zh/en 直接返回）
   async function translateText(text, lang) {

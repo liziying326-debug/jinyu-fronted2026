@@ -313,18 +313,43 @@ window.i18n = i18n;
     }
   }
 
-  // 翻译单段文本（带缓存 + 自动持久化）
+  // 翻译单段文本（带 i18n 缓存 + 内存缓存 + 自动持久化）
+  // 缓存优先级：①内存cache → ②i18n(translations.json)内存数据 → ③API翻译 → 回写①②
   async function translate(text, from, to, opts) {
     if (!text || !text.trim() || from === to) return text;
     opts = opts || {};
-    var key = cacheKey(from, to, text.trim());
+    var trimmedText = text.trim();
+
+    // ① 内存 cache（当前会话）
+    var key = cacheKey(from, to, trimmedText);
     if (cache[key]) return cache[key];
 
+    // ② i18n 缓存（translations.json 已加载到内存的数据，跨会话有效）
+    if (window.i18n && window.i18n.translations && window.i18n.translations[to]) {
+      var i18nDict = window.i18n.translations[to];
+      // 尝试用文本内容反向匹配（遍历找值等于原文的条目）
+      for (var k in i18nDict) {
+        if (i18nDict[k] && i18nDict[k].trim() === trimmedText && k !== trimmedText) {
+          cache[key] = i18nDict[k]; // 写入内存 cache 加速下次
+          return i18nDict[k];
+        }
+      }
+      // 也尝试用 opts 中的 id/field 精确匹配（pickLang 路径传的）
+      if (opts.cacheId && opts.cacheField) {
+        var preciseKey = 'prod_' + opts.cacheId + '_' + opts.cacheField;
+        if (i18nDict[preciseKey] && i18nDict[preciseKey].trim()) {
+          cache[key] = i18nDict[preciseKey];
+          return i18nDict[preciseKey];
+        }
+      }
+    }
+
+    // ③ 都没命中 → 调 API
     try {
       var res = await fetch('/api/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.trim(), from: from, to: to })
+        body: JSON.stringify({ text: trimmedText, from: from, to: to })
       });
       if (!res.ok) return text;
       var data = await res.json();
