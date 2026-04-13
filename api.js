@@ -98,6 +98,51 @@ async function initSEO(options) {
   }
 }
 
+/**
+ * 动态加载产品分类到导航栏 Products 下拉菜单
+ * 查找 #nav-product-dropdown 元素，从 /api/categories 获取分类列表并填充
+ * 翻译方式与产品页 tab 一致：用 autoTranslate.pickLang 异步翻译
+ */
+async function loadNavProductDropdown() {
+  const dropdown = document.getElementById('nav-product-dropdown');
+  if (!dropdown) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/categories`);
+    if (!res.ok) return;
+    const cats = await res.json();
+    const list = Array.isArray(cats) ? cats : (cats.data || []);
+    if (list.length === 0) return;
+
+    // 按 sort_order 排序
+    list.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+    const isSelfPage = dropdown.hasAttribute('data-self-page');
+    const prefix = isSelfPage ? '#' : 'products.html#';
+
+    // 获取当前语言
+    function getLang() {
+      try { return localStorage.getItem('jinyu_lang') || localStorage.getItem('lang') || 'en'; } catch(e) { return 'en'; }
+    }
+    const lang = getLang();
+
+    // 用 autoTranslate.pickLang 翻译每个分类名称（与产品页 tab 一致）
+    const translated = await Promise.all(list.map(async cat => {
+      let name;
+      if (window.autoTranslate) {
+        name = await window.autoTranslate.pickLang(cat, 'name', lang);
+      }
+      if (!name) name = cat.name_en || cat.name || String(cat.id);
+      const slug = String(cat.id);
+      return `<a href="${prefix}${slug}">${name}</a>`;
+    }));
+
+    dropdown.innerHTML = translated.join('');
+  } catch (e) {
+    console.warn('loadNavProductDropdown failed:', e);
+  }
+}
+
 // 提交联系表单
 async function submitContact(formData) {
   try {

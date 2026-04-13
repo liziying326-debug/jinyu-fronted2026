@@ -491,8 +491,16 @@ window.i18n = i18n;
 // ========================================
 // 初始化（异步）
 // ========================================
-i18n.init().catch(err => {
+// 初始化 + 语言切换时刷新导航产品分类下拉菜单
+document.addEventListener('langChange', () => {
+  if (typeof loadNavProductDropdown === 'function') loadNavProductDropdown();
+});
+
+const _i18nReady = i18n.init().catch(err => {
   console.error('i18n init failed:', err);
   // 即使加载失败也尝试应用（使用键名作为回退）
   i18n.applyTranslations();
+});
+_i18nReady.then(() => {
+  if (typeof loadNavProductDropdown === 'function') loadNavProductDropdown();
 });
